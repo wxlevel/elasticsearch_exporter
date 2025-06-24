@@ -109,6 +109,26 @@ func main() {
 		awsRoleArn = kingpin.Flag("aws.role-arn",
 			"Role ARN of an IAM role to assume.").
 			Default("").String()
+
+			/*
+			采集所有索引文档数
+			./elasticsearch_exporter \
+			--es.uri=http://localhost:9200 \
+			--es.docs_count
+
+			仅采集指定索引文档数
+			./elasticsearch_exporter \
+			--es.uri=http://localhost:9200 \
+			--es.docs_count \
+			--es.docs_count.indices=order-2025-01,log-2025
+			*/
+		esDocsCountIndices = kingpin.Flag("es.docs_count.indices",
+			"Comma separated list of index names to include for docs count collector. If empty, collect all indices.").
+			Default("").String()
+		esExportDocsCount = kingpin.Flag("es.docs_count",
+			"Export document count per index metrics.").
+			Default("false").Bool()
+			
 	)
 
 	promslogConfig := &promslog.Config{}
@@ -219,6 +239,23 @@ func main() {
 	if *esExportIndicesMappings {
 		prometheus.MustRegister(collector.NewIndicesMappings(logger, httpClient, esURL))
 	}
+	
+	if *esExportDocsCount {
+		//DocsCount 指标采集器
+		included := []string{}
+		if *esDocsCountIndices != "" {
+			included = strings.Split(*esDocsCountIndices, ",")
+		}
+	
+		docsC := collector.NewDocsCount(logger, httpClient, esURL, included)
+		prometheus.MustRegister(docsC)
+	
+		if err := clusterInfoRetriever.RegisterConsumer(docsC); err != nil {
+			logger.Error("failed to register docs count collector in cluster info", "err", err)
+			os.Exit(1)
+		}
+	}
+	
 
 	// Create a context that is cancelled on SIGKILL or SIGINT.
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
